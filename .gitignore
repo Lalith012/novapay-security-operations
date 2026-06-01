@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+findings/reports/*.json
+findings/reports/*.html
+!findings/reports/.gitkeep
+*.log
+
+# Azure / AWS local creds (defense in depth)
+.azure/
+.aws/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
