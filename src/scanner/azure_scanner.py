@@ -19,18 +19,23 @@ from azure.identity import DefaultAzureCredential
 from azure.mgmt.storage import StorageManagementClient
 from azure.mgmt.security import SecurityCenter
 from azure.mgmt.resource import ResourceManagementClient
+from azure.mgmt.monitor import MonitorManagementClient
+from azure.mgmt.loganalytics import LogAnalyticsManagementClient
+from azure.mgmt.network import NetworkManagementClient
+from azure.mgmt.keyvault import KeyVaultManagementClient
 from azure.core.exceptions import HttpResponseError, ClientAuthenticationError
 
 from config import Config
 
+# Configure logging once
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=Config.LOG_LEVEL,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+    logging.getLogger("azure.identity").setLevel(logging.WARNING)
 
-logging.basicConfig(
-    level=Config.LOG_LEVEL,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-# Suppress noisy Azure SDK HTTP logs at INFO level
-logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
-logging.getLogger("azure.identity").setLevel(logging.WARNING)
 log = logging.getLogger("azure_scanner")
 
 
@@ -46,10 +51,21 @@ class Finding:
     cloud: str = "azure"
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     details: dict = field(default_factory=dict)
+    frameworks: dict = field(default_factory=dict)
+    impact_score: int = 0
+
+    def enrich_with_mappings(self):
+        """Attach framework mappings and compute impact score."""
+        from src.mappings import get_all_mappings, impact_score
+        self.frameworks = get_all_mappings(self.control_id)
+        self.impact_score = impact_score(self.control_id, self.severity)
 
 
 class AzureScanner:
     """Scans an Azure subscription against NovaPay's security controls."""
+
+    # Risky inbound ports that should never be open to 0.0.0.0/0 ("*")
+    RISKY_PORTS = {"22", "3389", "445", "1433", "3306", "5432", "27017", "6379"}
 
     def __init__(self, subscription_id: str):
         self.subscription_id = subscription_id
@@ -60,6 +76,10 @@ class AzureScanner:
         self._storage_client: Optional[StorageManagementClient] = None
         self._security_client: Optional[SecurityCenter] = None
         self._resource_client: Optional[ResourceManagementClient] = None
+        self._monitor_client: Optional[MonitorManagementClient] = None
+        self._loganalytics_client: Optional[LogAnalyticsManagementClient] = None
+        self._network_client: Optional[NetworkManagementClient] = None
+        self._keyvault_client: Optional[KeyVaultManagementClient] = None
 
     @property
     def storage(self) -> StorageManagementClient:
@@ -79,6 +99,30 @@ class AzureScanner:
             self._resource_client = ResourceManagementClient(self.credential, self.subscription_id)
         return self._resource_client
 
+    @property
+    def monitor(self) -> MonitorManagementClient:
+        if self._monitor_client is None:
+            self._monitor_client = MonitorManagementClient(self.credential, self.subscription_id)
+        return self._monitor_client
+
+    @property
+    def loganalytics(self) -> LogAnalyticsManagementClient:
+        if self._loganalytics_client is None:
+            self._loganalytics_client = LogAnalyticsManagementClient(self.credential, self.subscription_id)
+        return self._loganalytics_client
+
+    @property
+    def network(self) -> NetworkManagementClient:
+        if self._network_client is None:
+            self._network_client = NetworkManagementClient(self.credential, self.subscription_id)
+        return self._network_client
+
+    @property
+    def keyvault(self) -> KeyVaultManagementClient:
+        if self._keyvault_client is None:
+            self._keyvault_client = KeyVaultManagementClient(self.credential, self.subscription_id)
+        return self._keyvault_client
+
     # ------------------------------------------------------------------
     # Controls
     # ------------------------------------------------------------------
@@ -96,7 +140,6 @@ class AzureScanner:
                 return
 
             for acct in accounts:
-                # Azure encrypts at rest by default — we verify it hasn't been disabled
                 encrypted = (
                     acct.encryption is not None
                     and acct.encryption.services is not None
@@ -124,7 +167,6 @@ class AzureScanner:
         try:
             accounts = list(self.storage.storage_accounts.list())
             for acct in accounts:
-                # allow_blob_public_access = False means public access is blocked
                 public_blocked = acct.allow_blob_public_access is False
                 self.findings.append(Finding(
                     control_id=control_id,
@@ -160,6 +202,219 @@ class AzureScanner:
         except (HttpResponseError, ClientAuthenticationError) as e:
             log.error(f"[{control_id}] Failed: {e}")
 
+    def check_audit_logging_enabled(self) -> None:
+        """Control AZ-004: Audit logging must be enabled for critical resources.
+
+        Verifies that storage accounts have diagnostic settings configured
+        that log Read, Write, AND Delete operations to a Log Analytics workspace.
+        """
+        control_id = "AZ-004"
+        control_name = "Audit logging enabled"
+        log.info(f"[{control_id}] Checking {control_name}...")
+
+        required_categories = {"StorageRead", "StorageWrite", "StorageDelete"}
+
+        try:
+            accounts = list(self.storage.storage_accounts.list())
+            if not accounts:
+                log.info(f"[{control_id}] No storage accounts found — NOT_APPLICABLE")
+                return
+
+            for acct in accounts:
+                blob_resource_id = f"{acct.id}/blobServices/default"
+
+                try:
+                    diag_settings = list(self.monitor.diagnostic_settings.list(blob_resource_id))
+                except HttpResponseError as e:
+                    log.warning(f"[{control_id}] Could not list diagnostic settings for {acct.name}: {e.message}")
+                    diag_settings = []
+
+                enabled_categories = set()
+                for ds in diag_settings:
+                    if ds.logs:
+                        for log_setting in ds.logs:
+                            if log_setting.enabled and log_setting.category:
+                                enabled_categories.add(log_setting.category)
+
+                missing = required_categories - enabled_categories
+                passed = len(missing) == 0
+
+                self.findings.append(Finding(
+                    control_id=control_id,
+                    control_name=control_name,
+                    resource_id=acct.id,
+                    resource_type="Microsoft.Storage/storageAccounts",
+                    status="PASS" if passed else "FAIL",
+                    severity="HIGH",
+                    details={
+                        "required_categories": sorted(required_categories),
+                        "enabled_categories": sorted(enabled_categories),
+                        "missing_categories": sorted(missing),
+                        "diag_settings_count": len(diag_settings),
+                    },
+                ))
+        except (HttpResponseError, ClientAuthenticationError) as e:
+            log.error(f"[{control_id}] Failed: {e}")
+
+    def check_log_retention(self) -> None:
+        """Control AZ-005: Log Analytics workspaces must retain logs for >= 90 days."""
+        control_id = "AZ-005"
+        control_name = "Log retention >= 90 days"
+        log.info(f"[{control_id}] Checking {control_name}...")
+
+        MINIMUM_DAYS = 90
+
+        try:
+            workspaces = list(self.loganalytics.workspaces.list())
+            if not workspaces:
+                log.info(f"[{control_id}] No Log Analytics workspaces found — NOT_APPLICABLE")
+                return
+
+            for ws in workspaces:
+                retention = ws.retention_in_days or 0
+                passed = retention >= MINIMUM_DAYS
+
+                self.findings.append(Finding(
+                    control_id=control_id,
+                    control_name=control_name,
+                    resource_id=ws.id,
+                    resource_type="Microsoft.OperationalInsights/workspaces",
+                    status="PASS" if passed else "FAIL",
+                    severity="MEDIUM",
+                    details={
+                        "retention_days": retention,
+                        "minimum_required": MINIMUM_DAYS,
+                        "location": ws.location,
+                    },
+                ))
+        except (HttpResponseError, ClientAuthenticationError) as e:
+            log.error(f"[{control_id}] Failed: {e}")
+
+    def check_network_segmentation(self) -> None:
+        """Control AZ-006: Network Security Groups must not allow risky inbound traffic from the internet.
+
+        Flags any NSG with Inbound + Allow rule where:
+          - Source is "*", "Internet", or "0.0.0.0/0"
+          - Destination port matches a known-risky service (SSH, RDP, SQL, etc.)
+        """
+        control_id = "AZ-006"
+        control_name = "Network segmentation enforced"
+        log.info(f"[{control_id}] Checking {control_name}...")
+
+        internet_sources = {"*", "0.0.0.0/0", "Internet"}
+
+        try:
+            nsgs = list(self.network.network_security_groups.list_all())
+            if not nsgs:
+                log.info(f"[{control_id}] No NSGs found — NOT_APPLICABLE")
+                return
+
+            for nsg in nsgs:
+                violations = []
+
+                # Aggregate custom rules + default rules
+                rules = list(nsg.security_rules or []) + list(nsg.default_security_rules or [])
+
+                for rule in rules:
+                    if rule.direction != "Inbound":
+                        continue
+                    if rule.access != "Allow":
+                        continue
+
+                    # Source can be in source_address_prefix OR source_address_prefixes
+                    sources = set()
+                    if rule.source_address_prefix:
+                        sources.add(rule.source_address_prefix)
+                    if rule.source_address_prefixes:
+                        sources.update(rule.source_address_prefixes)
+
+                    if not (sources & internet_sources):
+                        continue
+
+                    # Ports — check both singular and plural fields
+                    ports = set()
+                    if rule.destination_port_range:
+                        ports.add(rule.destination_port_range)
+                    if rule.destination_port_ranges:
+                        ports.update(rule.destination_port_ranges)
+
+                    # "*" means all ports — definitely risky
+                    risky_match = "*" in ports or bool(ports & self.RISKY_PORTS)
+
+                    if risky_match:
+                        violations.append({
+                            "rule_name": rule.name,
+                            "priority": rule.priority,
+                            "sources": sorted(sources),
+                            "ports": sorted(ports),
+                            "protocol": rule.protocol,
+                        })
+
+                passed = len(violations) == 0
+
+                self.findings.append(Finding(
+                    control_id=control_id,
+                    control_name=control_name,
+                    resource_id=nsg.id,
+                    resource_type="Microsoft.Network/networkSecurityGroups",
+                    status="PASS" if passed else "FAIL",
+                    severity="HIGH",
+                    details={
+                        "violation_count": len(violations),
+                        "violations": violations,
+                        "location": nsg.location,
+                    },
+                ))
+        except (HttpResponseError, ClientAuthenticationError) as e:
+            log.error(f"[{control_id}] Failed: {e}")
+
+    def check_keyvault_public_access(self) -> None:
+        """Control AZ-007: Key Vaults must not allow public network access.
+
+        Key Vaults containing encryption keys, secrets, and certificates must
+        be reachable only from approved networks (private endpoints or VNet rules),
+        never from the public internet.
+        """
+        control_id = "AZ-007"
+        control_name = "Key Vault public access blocked"
+        log.info(f"[{control_id}] Checking {control_name}...")
+
+        try:
+            vaults = list(self.keyvault.vaults.list_by_subscription())
+            if not vaults:
+                log.info(f"[{control_id}] No Key Vaults found — NOT_APPLICABLE")
+                return
+
+            for vault in vaults:
+                # public_network_access can be "Enabled" or "Disabled"
+                # If unset, Azure default depends on network_acls.default_action
+                pna = vault.properties.public_network_access
+                network_acls = vault.properties.network_acls
+
+                # Approach: PASS only if explicitly disabled OR default_action is Deny
+                public_blocked = False
+                if pna == "Disabled":
+                    public_blocked = True
+                elif network_acls and network_acls.default_action == "Deny":
+                    public_blocked = True
+
+                self.findings.append(Finding(
+                    control_id=control_id,
+                    control_name=control_name,
+                    resource_id=vault.id,
+                    resource_type="Microsoft.KeyVault/vaults",
+                    status="PASS" if public_blocked else "FAIL",
+                    severity="CRITICAL",
+                    details={
+                        "public_network_access": pna,
+                        "default_network_action": network_acls.default_action if network_acls else None,
+                        "rbac_enabled": vault.properties.enable_rbac_authorization,
+                        "location": vault.location,
+                    },
+                ))
+        except (HttpResponseError, ClientAuthenticationError) as e:
+            log.error(f"[{control_id}] Failed: {e}")
+
     # ------------------------------------------------------------------
     # Orchestration
     # ------------------------------------------------------------------
@@ -170,6 +425,15 @@ class AzureScanner:
         self.check_storage_encryption_at_rest()
         self.check_storage_public_access()
         self.check_storage_https_only()
+        self.check_audit_logging_enabled()
+        self.check_log_retention()
+        self.check_network_segmentation()
+        self.check_keyvault_public_access()
+
+        # Enrich every finding with framework mappings + impact scores
+        for f in self.findings:
+            f.enrich_with_mappings()
+
         log.info(f"Scan complete: {len(self.findings)} findings")
         return self.findings
 
@@ -189,12 +453,27 @@ def main():
     scanner = AzureScanner(Config.AZURE_SUBSCRIPTION_ID)
     findings = scanner.run_all()
 
+    # Persist findings to JSON report
+    from src.reports.json_writer import write_report
+    report_path = write_report(
+        findings,
+        Config.OUTPUT_DIR,
+        scan_metadata={
+            "cloud": "azure",
+            "subscription_id": Config.AZURE_SUBSCRIPTION_ID,
+            "resource_group": Config.AZURE_RESOURCE_GROUP,
+            "location": Config.AZURE_LOCATION,
+        },
+    )
+
     print("\n" + "=" * 70)
     print("AZURE SCAN RESULTS")
     print("=" * 70)
     for f in findings:
-        symbol = "✓" if f.status == "PASS" else "✗"
-        print(f"{symbol} [{f.control_id}] {f.resource_id.split('/')[-1]:40} {f.status}")
+        symbol = "[PASS]" if f.status == "PASS" else "[FAIL]"
+        fw_count = sum(1 for v in f.frameworks.values() if v is not None)
+        print(f"{symbol} [{f.control_id}] {f.resource_id.split('/')[-1]:40} {f.status:5} "
+              f"impact={f.impact_score:2} frameworks={fw_count}/3")
 
     print("\n" + "-" * 70)
     print("SUMMARY")
