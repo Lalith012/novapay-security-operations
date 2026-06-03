@@ -41,6 +41,16 @@ ESSENTIAL_EIGHT_MAPPINGS = {
         "requirement": "Detect and respond to security events",
         "rationale": "Active alerts enable response to privilege misuse.",
     },
+    "AZ-010": {
+        "strategies": ["E4"],
+        "requirement": "User application hardening via transport security",
+        "rationale": "TLS 1.2+ enforcement hardens client-server communication channels.",
+    },
+    "AZ-011": {
+        "strategies": ["E5"],
+        "requirement": "Restrict administrative privileges to least-necessary scope",
+        "rationale": "RBAC audit enforces bounded administrative access.",
+    },
     "AZ-012": {
         "strategies": ["E8"],
         "requirement": "Regular backups, retained securely and tested",

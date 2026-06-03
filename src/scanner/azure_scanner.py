@@ -23,6 +23,8 @@ from azure.mgmt.monitor import MonitorManagementClient
 from azure.mgmt.loganalytics import LogAnalyticsManagementClient
 from azure.mgmt.network import NetworkManagementClient
 from azure.mgmt.keyvault import KeyVaultManagementClient
+from azure.mgmt.authorization import AuthorizationManagementClient
+from azure.mgmt.recoveryservices import RecoveryServicesClient
 from azure.core.exceptions import HttpResponseError, ClientAuthenticationError
 
 from config import Config
@@ -80,6 +82,8 @@ class AzureScanner:
         self._loganalytics_client: Optional[LogAnalyticsManagementClient] = None
         self._network_client: Optional[NetworkManagementClient] = None
         self._keyvault_client: Optional[KeyVaultManagementClient] = None
+        self._auth_client: Optional[AuthorizationManagementClient] = None
+        self._recovery_client: Optional[RecoveryServicesClient] = None
 
     @property
     def storage(self) -> StorageManagementClient:
@@ -122,6 +126,18 @@ class AzureScanner:
         if self._keyvault_client is None:
             self._keyvault_client = KeyVaultManagementClient(self.credential, self.subscription_id)
         return self._keyvault_client
+
+    @property
+    def authorization(self) -> AuthorizationManagementClient:
+        if self._auth_client is None:
+            self._auth_client = AuthorizationManagementClient(self.credential, self.subscription_id)
+        return self._auth_client
+
+    @property
+    def recovery(self) -> RecoveryServicesClient:
+        if self._recovery_client is None:
+            self._recovery_client = RecoveryServicesClient(self.credential, self.subscription_id)
+        return self._recovery_client
 
     # ------------------------------------------------------------------
     # Controls
@@ -415,20 +431,270 @@ class AzureScanner:
         except (HttpResponseError, ClientAuthenticationError) as e:
             log.error(f"[{control_id}] Failed: {e}")
 
+    def check_tls_version(self) -> None:
+        """Control AZ-010: Storage accounts must enforce TLS 1.2 or higher.
+
+        Older TLS versions (1.0, 1.1) have known vulnerabilities (BEAST, POODLE).
+        Azure defaults new accounts to TLS 1.2, but legacy accounts may still
+        permit downgrade.  This check flags anything below TLS1_2.
+        """
+        control_id = "AZ-010"
+        control_name = "Minimum TLS version 1.2 enforced"
+        log.info(f"[{control_id}] Checking {control_name}...")
+
+        COMPLIANT_VERSIONS = {"TLS1_2", "TLS1_3"}
+
+        try:
+            accounts = list(self.storage.storage_accounts.list())
+            if not accounts:
+                log.info(f"[{control_id}] No storage accounts found — NOT_APPLICABLE")
+                return
+
+            for acct in accounts:
+                tls_version = acct.minimum_tls_version or "TLS1_0"  # Azure default if unset
+                passed = tls_version in COMPLIANT_VERSIONS
+
+                self.findings.append(Finding(
+                    control_id=control_id,
+                    control_name=control_name,
+                    resource_id=acct.id,
+                    resource_type="Microsoft.Storage/storageAccounts",
+                    status="PASS" if passed else "FAIL",
+                    severity="HIGH",
+                    details={
+                        "minimum_tls_version": tls_version,
+                        "compliant_versions": sorted(COMPLIANT_VERSIONS),
+                        "location": acct.location,
+                    },
+                ))
+        except (HttpResponseError, ClientAuthenticationError) as e:
+            log.error(f"[{control_id}] Failed: {e}")
+
+    def check_vulnerability_assessment(self) -> None:
+        """Control AZ-008: Microsoft Defender for Cloud must have Standard-tier plans enabled.
+
+        Defender Standard (now "Defender for X") adds runtime threat detection,
+        vulnerability scanning, and adaptive controls beyond the free tier's
+        security recommendations.  PASS if at least one Defender plan is Standard.
+        """
+        control_id = "AZ-008"
+        control_name = "Vulnerability assessment enabled"
+        log.info(f"[{control_id}] Checking {control_name}...")
+
+        try:
+            result = self.security.pricings.list()
+            # SDK v6 returns PricingList with .value; older versions return iterable
+            pricings = result.value if hasattr(result, "value") else list(result)
+
+            standard_plans = set()
+            free_plans = set()
+
+            for p in pricings:
+                if p.pricing_tier == "Standard":
+                    standard_plans.add(p.name)
+                else:
+                    free_plans.add(p.name)
+
+            # PASS if at least one plan is Standard (Defender activated)
+            passed = len(standard_plans) > 0
+
+            self.findings.append(Finding(
+                control_id=control_id,
+                control_name=control_name,
+                resource_id=f"/subscriptions/{self.subscription_id}",
+                resource_type="Microsoft.Security/pricings",
+                status="PASS" if passed else "FAIL",
+                severity="HIGH",
+                details={
+                    "standard_plans": sorted(standard_plans),
+                    "free_only_plans": sorted(free_plans),
+                    "total_standard": len(standard_plans),
+                    "total_free": len(free_plans),
+                },
+            ))
+        except (HttpResponseError, ClientAuthenticationError) as e:
+            log.error(f"[{control_id}] Failed: {e}")
+
+    def check_security_alerts_active(self) -> None:
+        """Control AZ-009: Security alert data collection must be enabled.
+
+        Auto-provisioning deploys the monitoring agent (Log Analytics / Azure
+        Monitor) to VMs automatically, which is the upstream dependency for
+        Defender runtime alerts.  Without it, threat detection is blind.
+        """
+        control_id = "AZ-009"
+        control_name = "Security alerts auto-provisioning active"
+        log.info(f"[{control_id}] Checking {control_name}...")
+
+        try:
+            settings = list(self.security.auto_provisioning_settings.list())
+
+            if not settings:
+                self.findings.append(Finding(
+                    control_id=control_id,
+                    control_name=control_name,
+                    resource_id=f"/subscriptions/{self.subscription_id}",
+                    resource_type="Microsoft.Security/autoProvisioningSettings",
+                    status="FAIL",
+                    severity="HIGH",
+                    details={"reason": "No auto-provisioning settings found"},
+                ))
+                return
+
+            for setting in settings:
+                enabled = setting.auto_provision == "On"
+                self.findings.append(Finding(
+                    control_id=control_id,
+                    control_name=control_name,
+                    resource_id=(
+                        f"/subscriptions/{self.subscription_id}"
+                        f"/providers/Microsoft.Security"
+                        f"/autoProvisioningSettings/{setting.name}"
+                    ),
+                    resource_type="Microsoft.Security/autoProvisioningSettings",
+                    status="PASS" if enabled else "FAIL",
+                    severity="HIGH",
+                    details={
+                        "setting_name": setting.name,
+                        "auto_provision": setting.auto_provision,
+                    },
+                ))
+        except (HttpResponseError, ClientAuthenticationError) as e:
+            log.error(f"[{control_id}] Failed: {e}")
+
+    def check_rbac_roles(self) -> None:
+        """Control AZ-011: Subscription-level RBAC must follow least-privilege.
+
+        Audits role assignments at subscription scope for over-privileged
+        principals.  CIS Azure Benchmark recommends <= 3 Owner assignments.
+
+        NOTE: This checks Azure RBAC, not Entra ID PIM (which requires a
+        paid P2 license).  PIM just-in-time access is documented as an
+        out-of-scope enhancement in the README.
+        """
+        control_id = "AZ-011"
+        control_name = "RBAC least-privilege audit"
+        log.info(f"[{control_id}] Checking {control_name}...")
+
+        # Well-known built-in role definition GUIDs
+        HIGH_PRIV_ROLES = {
+            "8e3af657-a8ff-443c-a75c-2fe8c4bcb635": "Owner",
+            "b24988ac-6180-42a0-ab88-20f7382dd24c": "Contributor",
+            "18d7d88d-d35e-4fb5-a5c3-7773c20a72d9": "User Access Administrator",
+        }
+        MAX_OWNERS = 3  # CIS Benchmark recommendation
+
+        try:
+            scope = f"/subscriptions/{self.subscription_id}"
+            assignments = list(self.authorization.role_assignments.list_for_scope(scope=scope))
+
+            high_priv = []
+            owner_count = 0
+
+            for ra in assignments:
+                # Extract role GUID from full role_definition_id path
+                role_guid = ra.role_definition_id.rsplit("/", 1)[-1]
+                role_name = HIGH_PRIV_ROLES.get(role_guid)
+
+                if role_name:
+                    high_priv.append({
+                        "principal_id": ra.principal_id,
+                        "principal_type": ra.principal_type,
+                        "role": role_name,
+                        "scope": ra.scope,
+                    })
+                    if role_name == "Owner":
+                        owner_count += 1
+
+            # FAIL if Owner count exceeds CIS threshold
+            passed = owner_count <= MAX_OWNERS
+
+            self.findings.append(Finding(
+                control_id=control_id,
+                control_name=control_name,
+                resource_id=scope,
+                resource_type="Microsoft.Authorization/roleAssignments",
+                status="PASS" if passed else "FAIL",
+                severity="HIGH",
+                details={
+                    "owner_count": owner_count,
+                    "max_owners_allowed": MAX_OWNERS,
+                    "high_privilege_assignments": high_priv,
+                    "total_assignments": len(assignments),
+                },
+            ))
+        except (HttpResponseError, ClientAuthenticationError) as e:
+            log.error(f"[{control_id}] Failed: {e}")
+
+    def check_backup_configured(self) -> None:
+        """Control AZ-012: Recovery Services vaults must exist for backup.
+
+        Checks whether at least one Recovery Services vault exists in the
+        subscription, indicating backup infrastructure is provisioned.
+        A deeper check (protected items per vault) is a Phase 6 enhancement.
+        """
+        control_id = "AZ-012"
+        control_name = "Backup infrastructure configured"
+        log.info(f"[{control_id}] Checking {control_name}...")
+
+        try:
+            vaults = list(self.recovery.vaults.list_by_subscription_id())
+
+            passed = len(vaults) > 0
+
+            vault_details = [
+                {"name": v.name, "location": v.location, "sku": v.sku.name if v.sku else None}
+                for v in vaults
+            ]
+
+            self.findings.append(Finding(
+                control_id=control_id,
+                control_name=control_name,
+                resource_id=f"/subscriptions/{self.subscription_id}",
+                resource_type="Microsoft.RecoveryServices/vaults",
+                status="PASS" if passed else "FAIL",
+                severity="HIGH",
+                details={
+                    "vault_count": len(vaults),
+                    "vaults": vault_details,
+                },
+            ))
+        except (HttpResponseError, ClientAuthenticationError) as e:
+            log.error(f"[{control_id}] Failed: {e}")
+
     # ------------------------------------------------------------------
     # Orchestration
     # ------------------------------------------------------------------
 
     def run_all(self) -> list[Finding]:
-        """Execute all implemented controls."""
+        """Execute all 12 Azure controls."""
         log.info(f"Scanning subscription: {self.subscription_id[:8]}...")
-        self.check_storage_encryption_at_rest()
-        self.check_storage_public_access()
-        self.check_storage_https_only()
-        self.check_audit_logging_enabled()
-        self.check_log_retention()
-        self.check_network_segmentation()
-        self.check_keyvault_public_access()
+
+        # Storage controls
+        self.check_storage_encryption_at_rest()   # AZ-001
+        self.check_storage_public_access()         # AZ-002
+        self.check_storage_https_only()            # AZ-003
+        self.check_tls_version()                   # AZ-010
+
+        # Monitoring & logging
+        self.check_audit_logging_enabled()         # AZ-004
+        self.check_log_retention()                 # AZ-005
+
+        # Network
+        self.check_network_segmentation()          # AZ-006
+
+        # Secrets management
+        self.check_keyvault_public_access()        # AZ-007
+
+        # Defender for Cloud
+        self.check_vulnerability_assessment()      # AZ-008
+        self.check_security_alerts_active()        # AZ-009
+
+        # Identity & access
+        self.check_rbac_roles()                    # AZ-011
+
+        # Business continuity
+        self.check_backup_configured()             # AZ-012
 
         # Enrich every finding with framework mappings + impact scores
         for f in self.findings:

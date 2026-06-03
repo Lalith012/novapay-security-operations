@@ -8,6 +8,7 @@ Articles covered:
   Art. 5(1)(f) — Integrity and confidentiality of personal data
   Art. 30 — Records of processing activities
   Art. 32 — Security of processing
+  Art. 33 — Notification of personal data breach to supervisory authority
   Art. 44 — General principle for transfers (data residency)
 """
 
@@ -46,6 +47,31 @@ GDPR_MAPPINGS = {
         "articles": ["Art. 32(1)(a)", "Art. 32(2)"],
         "requirement": "Protection of cryptographic keys and secrets",
         "rationale": "Key Vault access controls prevent unauthorized cryptographic operations.",
+    },
+    "AZ-008": {
+        "articles": ["Art. 32(1)(d)"],
+        "requirement": "Regular testing and evaluating effectiveness of security measures",
+        "rationale": "Vulnerability assessment identifies weaknesses in systems processing personal data.",
+    },
+    "AZ-009": {
+        "articles": ["Art. 32(1)(d)", "Art. 33(1)"],
+        "requirement": "Detection capability supporting 72-hour breach notification",
+        "rationale": "Auto-provisioned monitoring enables timely detection required for Art. 33 notification.",
+    },
+    "AZ-010": {
+        "articles": ["Art. 32(1)(a)"],
+        "requirement": "State-of-the-art encryption of personal data in transit",
+        "rationale": "TLS 1.2+ prevents known downgrade attacks (BEAST, POODLE) on data in transit.",
+    },
+    "AZ-011": {
+        "articles": ["Art. 5(1)(f)", "Art. 32(1)(b)"],
+        "requirement": "Confidentiality via least-privilege access controls",
+        "rationale": "Excessive privileged access increases risk of unauthorized processing of personal data.",
+    },
+    "AZ-012": {
+        "articles": ["Art. 32(1)(b)", "Art. 32(1)(c)"],
+        "requirement": "Resilience of processing systems; ability to restore availability",
+        "rationale": "Backup infrastructure ensures personal data can be restored after incidents.",
     },
 }
 

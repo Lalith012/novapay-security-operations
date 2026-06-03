@@ -45,6 +45,31 @@ UAE_PDPL_MAPPINGS = {
         "requirement": "Secure key management for encryption operations",
         "rationale": "Key Vault controls protect cryptographic material.",
     },
+    "AZ-008": {
+        "articles": ["Art. 16(1)"],
+        "requirement": "Technical measures to identify system vulnerabilities",
+        "rationale": "Vulnerability assessment supports proactive security posture under Art. 16.",
+    },
+    "AZ-009": {
+        "articles": ["Art. 16(1)", "Art. 20(1)"],
+        "requirement": "Detection measures supporting breach notification obligations",
+        "rationale": "Auto-provisioned alerting enables breach detection required by Art. 20.",
+    },
+    "AZ-010": {
+        "articles": ["Art. 16(1)"],
+        "requirement": "Protection of personal data during transmission",
+        "rationale": "TLS 1.2+ enforcement meets transit-time security under Art. 16.",
+    },
+    "AZ-011": {
+        "articles": ["Art. 16(1)", "Art. 16(2)"],
+        "requirement": "Access control ensuring only authorized processing",
+        "rationale": "Least-privilege RBAC prevents unauthorized access to personal data.",
+    },
+    "AZ-012": {
+        "articles": ["Art. 16(1)"],
+        "requirement": "Technical measures for data availability and recovery",
+        "rationale": "Backup infrastructure ensures recoverability of personal data.",
+    },
 }
 
 
