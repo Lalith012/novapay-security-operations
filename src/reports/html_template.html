@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NovaPay Security Operations — Compliance Report</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e2e4e9;
+    --muted: #8b8fa3;
+    --accent: #4f8ff7;
+    --pass: #2ea44f;
+    --fail: #da3633;
+    --warn: #d29922;
+    --partial: #6e7681;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 2rem;
+  }
+
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  .header h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; }
+  .header .subtitle { color: var(--muted); font-size: 0.85rem; margin-top: 0.25rem; }
+  .header .meta { color: var(--muted); font-size: 0.8rem; margin-top: 0.75rem; }
+
+  /* Score cards */
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 2rem; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+  }
+  .card-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .card-score { font-size: 2rem; font-weight: 700; margin: 0.25rem 0; }
+  .card-detail { font-size: 0.8rem; color: var(--muted); }
+  .score-pass { color: var(--pass); }
+  .score-warn { color: var(--warn); }
+  .score-fail { color: var(--fail); }
+
+  /* Section headers */
+  .section { margin-bottom: 2rem; }
+  .section h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th {
+    text-align: left;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: rgba(79, 143, 247, 0.04); }
+
+  /* Status badges */
+  .badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .badge-pass { background: rgba(46, 164, 79, 0.15); color: var(--pass); }
+  .badge-fail { background: rgba(218, 54, 51, 0.15); color: var(--fail); }
+  .badge-partial { background: rgba(110, 118, 129, 0.15); color: var(--partial); }
+  .badge-na { background: rgba(110, 118, 129, 0.10); color: var(--muted); }
+
+  /* Delta-specific badges */
+  .badge-consistent-pass { background: rgba(46, 164, 79, 0.15); color: var(--pass); }
+  .badge-consistent-fail { background: rgba(218, 54, 51, 0.15); color: var(--fail); }
+  .badge-aws-pass { background: rgba(210, 153, 34, 0.15); color: var(--warn); }
+  .badge-azure-pass { background: rgba(210, 153, 34, 0.15); color: var(--warn); }
+
+  /* Severity */
+  .sev-critical { color: var(--fail); font-weight: 600; }
+  .sev-high { color: var(--warn); }
+  .sev-medium { color: var(--accent); }
+  .sev-low { color: var(--muted); }
+
+  /* Score bars */
+  .score-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .score-bar-track {
+    flex: 1;
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .score-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+  }
+  .score-bar-value { font-size: 0.8rem; font-weight: 600; min-width: 3rem; text-align: right; }
+
+  /* Footer */
+  .footer {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  @media print {
+    body { background: #fff; color: #222; padding: 1rem; }
+    .card { border: 1px solid #ddd; }
+    .header { border-color: #ddd; }
+    .section h2 { border-color: #ddd; }
+    th, td { border-color: #ddd; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>NovaPay Security Operations</h1>
+    <div class="subtitle">Multi-Cloud Compliance Report — GDPR · UAE PDPL · Essential Eight</div>
+    <div class="meta">
+      Generated: {{ scan_timestamp }} UTC
+      &nbsp;|&nbsp; AWS Account: {{ aws_account }}
+      &nbsp;|&nbsp; Azure Subscription: {{ azure_subscription }}
+    </div>
+  </div>
+
+  <!-- Score Cards -->
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">AWS</div>
+      <div class="card-score {% if summary.aws.score_pct >= 80 %}score-pass{% elif summary.aws.score_pct >= 50 %}score-warn{% else %}score-fail{% endif %}">
+        {{ summary.aws.score_pct }}%
+      </div>
+      <div class="card-detail">{{ summary.aws.passed }}/{{ summary.aws.total_controls }} controls passing</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Azure</div>
+      <div class="card-score {% if summary.azure.score_pct >= 80 %}score-pass{% elif summary.azure.score_pct >= 50 %}score-warn{% else %}score-fail{% endif %}">
+        {{ summary.azure.score_pct }}%
+      </div>
+      <div class="card-detail">{{ summary.azure.passed }}/{{ summary.azure.total_controls }} controls passing</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Combined</div>
+      {% set combined_total = summary.aws.total_controls + summary.azure.total_controls %}
+      {% set combined_pass = summary.aws.passed + summary.azure.passed %}
+      {% set combined_pct = ((combined_pass / combined_total) * 100) | round(1) if combined_total > 0 else 0 %}
+      <div class="card-score {% if combined_pct >= 80 %}score-pass{% elif combined_pct >= 50 %}score-warn{% else %}score-fail{% endif %}">
+        {{ combined_pct }}%
+      </div>
+      <div class="card-detail">{{ combined_pass }}/{{ combined_total }} controls passing</div>
+    </div>
+  </div>
+
+  <!-- Framework Scores -->
+  <div class="section">
+    <h2>Framework Compliance</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Framework</th>
+          <th>AWS</th>
+          <th>Azure</th>
+          <th>Combined</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for fw, scores in framework_scores.items() %}
+        <tr>
+          <td>{{ fw | replace('_', ' ') }}</td>
+          <td>
+            <div class="score-bar">
+              <div class="score-bar-track">
+                <div class="score-bar-fill" style="width: {{ scores.aws }}%; background: {% if scores.aws >= 80 %}var(--pass){% elif scores.aws >= 50 %}var(--warn){% else %}var(--fail){% endif %};"></div>
+              </div>
+              <div class="score-bar-value">{{ scores.aws }}%</div>
+            </div>
+          </td>
+          <td>
+            <div class="score-bar">
+              <div class="score-bar-track">
+                <div class="score-bar-fill" style="width: {{ scores.azure }}%; background: {% if scores.azure >= 80 %}var(--pass){% elif scores.azure >= 50 %}var(--warn){% else %}var(--fail){% endif %};"></div>
+              </div>
+              <div class="score-bar-value">{{ scores.azure }}%</div>
+            </div>
+          </td>
+          <td>
+            <div class="score-bar">
+              <div class="score-bar-track">
+                <div class="score-bar-fill" style="width: {{ scores.combined }}%; background: {% if scores.combined >= 80 %}var(--pass){% elif scores.combined >= 50 %}var(--warn){% else %}var(--fail){% endif %};"></div>
+              </div>
+              <div class="score-bar-value">{{ scores.combined }}%</div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Cross-Cloud Delta -->
+  <div class="section">
+    <h2>Cross-Cloud Delta Analysis</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Control Category</th>
+          <th>AWS</th>
+          <th>Azure</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in cross_cloud_delta %}
+        <tr>
+          <td>{{ d.category }}</td>
+          <td>
+            {% if d.aws_control %}
+              {{ d.aws_control }}
+              {% if d.aws_status == "PASS" %}<span class="badge badge-pass">PASS</span>
+              {% elif d.aws_status == "FAIL" %}<span class="badge badge-fail">FAIL</span>
+              {% else %}<span class="badge badge-na">{{ d.aws_status }}</span>{% endif %}
+            {% else %}
+              <span style="color: var(--muted);">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {{ d.azure_control }}
+            {% if d.azure_status == "PASS" %}<span class="badge badge-pass">PASS</span>
+            {% elif d.azure_status == "FAIL" %}<span class="badge badge-fail">FAIL</span>
+            {% else %}<span class="badge badge-na">{{ d.azure_status }}</span>{% endif %}
+          </td>
+          <td>
+            {% if d.delta_type == "CONSISTENT_PASS" %}<span class="badge badge-consistent-pass">Aligned ✓</span>
+            {% elif d.delta_type == "CONSISTENT_FAIL" %}<span class="badge badge-consistent-fail">Both Failing</span>
+            {% elif d.delta_type == "AWS_PASS_AZURE_FAIL" %}<span class="badge badge-aws-pass">Azure Gap</span>
+            {% elif d.delta_type == "AZURE_PASS_AWS_FAIL" %}<span class="badge badge-azure-pass">AWS Gap</span>
+            {% else %}<span class="badge badge-partial">Partial</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--muted);">
+      Summary:
+      {% for dt, count in delta_summary.items() %}
+        {{ dt | replace('_', ' ') }}: {{ count }}{% if not loop.last %} · {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Priority Gaps -->
+  <div class="section">
+    <h2>Priority Remediation</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Cloud</th>
+          <th>Control</th>
+          <th>Severity</th>
+          <th>Impact</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for gap in priority_gaps %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ gap.cloud | upper }}</td>
+          <td><strong>{{ gap.control_id }}</strong> {{ gap.control_name }}</td>
+          <td><span class="sev-{{ gap.severity | lower }}">{{ gap.severity }}</span></td>
+          <td>{{ gap.impact_score }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- AWS Findings Detail -->
+  <div class="section">
+    <h2>AWS Findings ({{ findings.aws | length }})</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Control</th>
+          <th>Status</th>
+          <th>Severity</th>
+          <th>Impact</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in findings.aws %}
+        <tr>
+          <td>{{ f.control_id }}</td>
+          <td>{{ f.control_name }}</td>
+          <td>
+            {% if f.status == "PASS" %}<span class="badge badge-pass">PASS</span>
+            {% elif f.status == "FAIL" %}<span class="badge badge-fail">FAIL</span>
+            {% else %}<span class="badge badge-na">N/A</span>{% endif %}
+          </td>
+          <td><span class="sev-{{ f.severity | lower }}">{{ f.severity }}</span></td>
+          <td>{{ f.impact_score }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Azure Findings Detail -->
+  <div class="section">
+    <h2>Azure Findings ({{ findings.azure | length }})</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Control</th>
+          <th>Resource</th>
+          <th>Status</th>
+          <th>Severity</th>
+          <th>Impact</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in findings.azure %}
+        <tr>
+          <td>{{ f.control_id }}</td>
+          <td>{{ f.control_name }}</td>
+          <td style="font-size: 0.8rem; color: var(--muted);">{{ f.resource_id.split('/')[-1] if '/' in f.resource_id else f.resource_id[:24] }}</td>
+          <td>
+            {% if f.status == "PASS" %}<span class="badge badge-pass">PASS</span>
+            {% elif f.status == "FAIL" %}<span class="badge badge-fail">FAIL</span>
+            {% else %}<span class="badge badge-na">N/A</span>{% endif %}
+          </td>
+          <td><span class="sev-{{ f.severity | lower }}">{{ f.severity }}</span></td>
+          <td>{{ f.impact_score }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    NovaPay Security Operations &mdash; Multi-Cloud Compliance Scanner
+    &nbsp;|&nbsp; Frameworks: GDPR, UAE PDPL, Essential Eight
+    &nbsp;|&nbsp; This report was generated from live infrastructure scans.
+    &nbsp;|&nbsp; <em>Portfolio project by LALITH &mdash; not affiliated with any real financial institution.</em>
+  </div>
+
+</div>
+</body>
+</html>

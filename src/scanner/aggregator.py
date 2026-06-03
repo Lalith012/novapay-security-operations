@@ -313,9 +313,9 @@ def main():
     agg = Aggregator(aws_findings, azure_findings)
     report = agg.generate_report()
 
-    # Persist unified report
+    # Persist unified report (JSON)
     from src.reports.json_writer import write_report
-    report_path = write_report(
+    json_path = write_report(
         azure_findings + aws_findings,
         Config.OUTPUT_DIR,
         scan_metadata={
@@ -325,6 +325,15 @@ def main():
             "aws_region": Config.AWS_REGION,
             "azure_subscription": Config.AZURE_SUBSCRIPTION_ID,
         },
+    )
+
+    # Persist unified report (HTML)
+    from src.reports.unified_report import generate_html_report
+    html_path = generate_html_report(
+        report,
+        Config.OUTPUT_DIR,
+        aws_account="664858858896",
+        azure_subscription=Config.AZURE_SUBSCRIPTION_ID,
     )
 
     # --- Print results ---
@@ -360,7 +369,8 @@ def main():
         print(f"  [{gap['cloud'].upper():5}] {gap['control_id']} {gap['control_name']:40} "
               f"impact={gap['impact_score']}")
 
-    print(f"\nReport: {report_path}")
+    print(f"\nJSON Report: {json_path}")
+    print(f"HTML Report: {html_path}")
 
 
 if __name__ == "__main__":

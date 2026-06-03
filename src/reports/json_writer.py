@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.scanner.azure_scanner import Finding
+    from src.scanner.models import Finding
 
 
 log = logging.getLogger("json_writer")
