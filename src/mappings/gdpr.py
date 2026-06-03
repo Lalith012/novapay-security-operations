@@ -73,6 +73,67 @@ GDPR_MAPPINGS = {
         "requirement": "Resilience of processing systems; ability to restore availability",
         "rationale": "Backup infrastructure ensures personal data can be restored after incidents.",
     },
+    # --- AWS Controls ---
+    "AWS-001": {
+        "articles": ["Art. 5(1)(f)", "Art. 32(1)(b)"],
+        "requirement": "Confidentiality of personal data stored in cloud object storage",
+        "rationale": "Public S3 access violates the integrity and confidentiality principle.",
+    },
+    "AWS-002": {
+        "articles": ["Art. 32(1)(a)"],
+        "requirement": "Encryption of personal data at rest",
+        "rationale": "S3 server-side encryption protects stored data per Art. 32.",
+    },
+    "AWS-003": {
+        "articles": ["Art. 32(1)(c)"],
+        "requirement": "Ability to restore availability and access to personal data",
+        "rationale": "S3 versioning enables recovery from accidental deletion or modification.",
+    },
+    "AWS-004": {
+        "articles": ["Art. 32(1)(b)", "Art. 32(1)(d)"],
+        "requirement": "Strong access controls for highest-privilege account",
+        "rationale": "Root account MFA prevents unauthorized access to all personal data processing systems.",
+    },
+    "AWS-005": {
+        "articles": ["Art. 32(1)(b)"],
+        "requirement": "Restrict programmatic root access to processing systems",
+        "rationale": "Active root access keys create an unauditable bypass of all access controls.",
+    },
+    "AWS-006": {
+        "articles": ["Art. 32(1)(b)"],
+        "requirement": "Enforce strong authentication for data processing personnel",
+        "rationale": "Weak password policy increases risk of unauthorized access to personal data.",
+    },
+    "AWS-007": {
+        "articles": ["Art. 30(1)", "Art. 32(1)(d)"],
+        "requirement": "Records of processing activities via comprehensive audit trail",
+        "rationale": "CloudTrail provides the audit log required for demonstrating GDPR compliance.",
+    },
+    "AWS-008": {
+        "articles": ["Art. 32(1)(d)"],
+        "requirement": "Integrity of audit records for compliance evidence",
+        "rationale": "Log file validation ensures audit trail has not been tampered with.",
+    },
+    "AWS-009": {
+        "articles": ["Art. 32(1)(a)"],
+        "requirement": "Cryptographic key lifecycle management",
+        "rationale": "Key rotation limits exposure window if a key is compromised.",
+    },
+    "AWS-010": {
+        "articles": ["Art. 32(1)(a)"],
+        "requirement": "Default encryption for block-level storage",
+        "rationale": "EBS encryption at rest protects data on attached volumes.",
+    },
+    "AWS-011": {
+        "articles": ["Art. 32(1)(b)"],
+        "requirement": "Network-level access controls for data processing systems",
+        "rationale": "Security group restrictions isolate personal data processing from the internet.",
+    },
+    "AWS-012": {
+        "articles": ["Art. 30(1)", "Art. 32(1)(d)"],
+        "requirement": "Network traffic audit records for breach investigation",
+        "rationale": "VPC flow logs enable forensic reconstruction of network-level access patterns.",
+    },
 }
 
 # Severity weights for impact scoring

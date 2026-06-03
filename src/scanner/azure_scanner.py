@@ -7,8 +7,6 @@ mapped to GDPR, UAE PDPL, and Essential Eight frameworks.
 
 import logging
 import sys
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -28,6 +26,7 @@ from azure.mgmt.recoveryservices import RecoveryServicesClient
 from azure.core.exceptions import HttpResponseError, ClientAuthenticationError
 
 from config import Config
+from src.scanner.models import Finding
 
 # Configure logging once
 if not logging.getLogger().handlers:
@@ -39,28 +38,6 @@ if not logging.getLogger().handlers:
     logging.getLogger("azure.identity").setLevel(logging.WARNING)
 
 log = logging.getLogger("azure_scanner")
-
-
-@dataclass
-class Finding:
-    """A single compliance finding for one control on one resource."""
-    control_id: str
-    control_name: str
-    resource_id: str
-    resource_type: str
-    status: str  # PASS | FAIL | NOT_APPLICABLE
-    severity: str  # CRITICAL | HIGH | MEDIUM | LOW
-    cloud: str = "azure"
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    details: dict = field(default_factory=dict)
-    frameworks: dict = field(default_factory=dict)
-    impact_score: int = 0
-
-    def enrich_with_mappings(self):
-        """Attach framework mappings and compute impact score."""
-        from src.mappings import get_all_mappings, impact_score
-        self.frameworks = get_all_mappings(self.control_id)
-        self.impact_score = impact_score(self.control_id, self.severity)
 
 
 class AzureScanner:

@@ -70,6 +70,67 @@ UAE_PDPL_MAPPINGS = {
         "requirement": "Technical measures for data availability and recovery",
         "rationale": "Backup infrastructure ensures recoverability of personal data.",
     },
+    # --- AWS Controls ---
+    "AWS-001": {
+        "articles": ["Art. 16(1)", "Art. 16(2)"],
+        "requirement": "Prevent unauthorized public access to personal data",
+        "rationale": "Public S3 access violates baseline access control under Art. 16.",
+    },
+    "AWS-002": {
+        "articles": ["Art. 16(1)"],
+        "requirement": "Technical measures to protect stored personal data",
+        "rationale": "S3 encryption at rest is a baseline technical measure under Art. 16.",
+    },
+    "AWS-003": {
+        "articles": ["Art. 16(1)"],
+        "requirement": "Ensure recoverability of personal data",
+        "rationale": "S3 versioning supports data recovery obligations.",
+    },
+    "AWS-004": {
+        "articles": ["Art. 16(1)", "Art. 20(1)"],
+        "requirement": "Prevent unauthorized access to highest-privilege account",
+        "rationale": "Root MFA prevents account takeover that could expose all personal data.",
+    },
+    "AWS-005": {
+        "articles": ["Art. 16(1)", "Art. 20(1)"],
+        "requirement": "Eliminate persistent root-level programmatic access",
+        "rationale": "Active root keys create standing risk of unauthorized data access.",
+    },
+    "AWS-006": {
+        "articles": ["Art. 16(1)"],
+        "requirement": "Enforce authentication standards for data access",
+        "rationale": "Password policy supports access control requirements.",
+    },
+    "AWS-007": {
+        "articles": ["Art. 22(1)", "Art. 16(1)"],
+        "requirement": "Maintain records of processing activities",
+        "rationale": "CloudTrail fulfills processing record requirements.",
+    },
+    "AWS-008": {
+        "articles": ["Art. 22(1)"],
+        "requirement": "Ensure integrity of processing records",
+        "rationale": "Log validation proves audit trail is trustworthy for compliance evidence.",
+    },
+    "AWS-009": {
+        "articles": ["Art. 16(1)"],
+        "requirement": "Secure key management for encryption operations",
+        "rationale": "Key rotation limits blast radius of compromised encryption material.",
+    },
+    "AWS-010": {
+        "articles": ["Art. 16(1)"],
+        "requirement": "Default encryption for compute storage",
+        "rationale": "EBS encryption protects data at rest on attached volumes.",
+    },
+    "AWS-011": {
+        "articles": ["Art. 16(1)", "Art. 20(1)"],
+        "requirement": "Network-level controls to protect personal data",
+        "rationale": "Security group restrictions limit network exposure of data processing systems.",
+    },
+    "AWS-012": {
+        "articles": ["Art. 22(1)"],
+        "requirement": "Network audit trail for breach investigation",
+        "rationale": "VPC flow logs support breach detection and notification under Art. 20.",
+    },
 }
 
 
