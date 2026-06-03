@@ -698,7 +698,7 @@ def main():
 
     # Persist findings to JSON report
     from src.reports.json_writer import write_report
-    report_path = write_report(
+    write_report(
         findings,
         Config.OUTPUT_DIR,
         scan_metadata={

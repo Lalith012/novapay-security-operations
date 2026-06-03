@@ -360,11 +360,11 @@ def main():
         print(f"  [{symbol}] {d['category']:35} AWS:{aws_label:7} Azure:{d['azure_control']:7} "
               f"→ {d['delta_type']}")
 
-    print(f"\n--- Delta Summary ---")
+    print("\n--- Delta Summary ---")
     for dt, count in report["delta_summary"].items():
         print(f"  {dt}: {count}")
 
-    print(f"\n--- Top Priority Gaps ---")
+    print("\n--- Top Priority Gaps ---")
     for gap in report["priority_gaps"]:
         print(f"  [{gap['cloud'].upper():5}] {gap['control_id']} {gap['control_name']:40} "
               f"impact={gap['impact_score']}")
